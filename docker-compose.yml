@@ -1,0 +1,15 @@
+services:
+  backend:
+    build: ./backend
+    env_file: ./backend/.env  # read at runtime; the key is never baked into the image
+    ports:
+      - "8000:8000"  # http://localhost:8000/docs
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"  # http://localhost:3000
+    depends_on:
+      - backend
+    restart: unless-stopped
