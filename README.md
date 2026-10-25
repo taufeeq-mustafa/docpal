@@ -2,7 +2,7 @@
 
 **Any form. Plain words. Done right.**
 
-DocPal helps anyone get through a confusing form: immigration, admission, scholarship, banking, medical, government or employment. Upload a PDF, photo or screenshot of the form. Gemma 4 explains every field in simple words, in English or Urdu, and tells you exactly what you need to have ready. You type your answers next to each explanation, see them appear on the form as you type, and download a filled PDF that you can still edit.
+DocPal helps anyone get through a confusing form: immigration, admission, scholarship, banking, medical, government or employment. Upload a PDF, photo or screenshot of the form. Gemma 4 explains every field in simple words, in English or Urdu, and tells you exactly what you need to have ready. You type your answers next to each explanation, see them appear on the form as you type, and download a clean, filled PDF ready to print or submit.
 
 **The AI never fills in answers for you.** It explains what each field asks for and what you need, and you write the answers. Every explanation also quotes the exact text it read from the form, so you can check it.
 
@@ -13,7 +13,8 @@ DocPal helps anyone get through a confusing form: immigration, admission, schola
 - **"You need" lists.** Each field shows the documents or facts you must have ready, never made-up values.
 - **Warnings and checklist.** Deadlines, penalties, required signatures and attachments become short alerts, plus a step-by-step checklist you can tick off and copy.
 - **Click to highlight.** Click a field on the form to jump to its explanation, or click an explanation to highlight its spot on the form.
-- **Fill and download.** Your answers are written into the PDF as real form fields, so the downloaded file stays editable in any PDF reader. Photos and screenshots are turned into PDFs too.
+- **Every kind of field.** Lines, empty boxes (beside or under the label), letter-by-letter boxes (one character per box), checkboxes, Yes / No and "tick all that apply" lists. Choice fields show tick boxes or radio buttons, and the download gets a tick mark in the right box.
+- **Fill and download.** Your answers are written onto the page as normal text, so the download looks finished in every PDF viewer and prints clean. To change an answer, edit it in DocPal and download again. Photos and screenshots are turned into PDFs too.
 - **Fast first results.** The form preview appears instantly and the first explanation shows up within seconds, because results stream in one field at a time.
 - **Private.** Files are processed in memory and never written to disk or stored.
 - **Open weights.** Runs on Gemma 4 through the Gemini API, or fully locally through Ollama.
@@ -34,18 +35,18 @@ flowchart LR
   A2 --> V[Photos, scans, leftovers:<br/>Gemma 4 vision coordinates]
   T & V --> G[Guardrails:<br/>drop units and duplicates]
   G -->|boxes| UI
-  UI -->|POST /api/fill| F[Filled, editable PDF]
+  UI -->|POST /api/fill| F[Filled PDF, ready to print]
 ```
 
-**Agent 1, the Explainer.** Gemma 4 reads every page image and writes one line of JSON per field: the label, the text it was read from, a plain-language explanation, what you need, and whether the field is required or already filled. The backend validates each line and streams it straight to the browser, so field cards appear while Gemma is still writing.
+**Agent 1, the Explainer.** Gemma 4 reads every page image and writes one line of JSON per field: the label, the text it was read from, a plain-language explanation, what you need, whether the field is required or already filled, and whether it's a text field or a choice (with its printed options). The backend validates each line and streams it straight to the browser, so field cards appear while Gemma is still writing.
 
 **Agent 2, the Locator.** Once all fields are in, the Locator works out where each answer goes:
 
-1. **Digital PDFs:** it searches the PDF's own text for each field's label, then takes the nearest blank line, underscore run or form box to its right. This is exact and takes about a second.
+1. **Digital PDFs:** it searches the PDF's own text for each field's label, then takes the nearest blank to its right: a line, an underscore run, a form box, an empty drawn box or a row of letter boxes. Boxes and letter rows just under the label count too. For choice fields it finds each printed option near the label and the small square beside it (or the spot just left of the text when there is none). This is exact and takes about a second.
 2. **Photos, scans and anything the text search missed:** Gemma 4 returns a box for each field's answer area.
 3. **Guardrails** then remove things that aren't real fields: units printed after a blank (such as "Per Month") and any second field that points at the same blank.
 
-**Filling.** For PDFs that already have form boxes, DocPal writes into them. Plain PDFs get new editable form boxes added at the located positions.
+**Filling.** DocPal writes each answer into the located spot (into the existing form box, if the PDF has one), then flattens everything into normal page text.
 
 ## Tech stack
 
@@ -70,7 +71,7 @@ docker compose up --build
 
 After changing code, run `docker compose up -d --build` again. The containers don't pick up code changes automatically. Changes to `backend/.env` only need `docker compose up -d`.
 
-Try it with the sample forms in [samples/](samples/).
+Try it with the sample forms in [samples/](samples/). `sample_visa_form.pdf` has every field type: lines, a box, letter boxes, checkboxes and Yes / No.
 
 ## Local development
 
@@ -113,6 +114,7 @@ All settings live in `backend/.env`. See [backend/.env.example](backend/.env.exa
 | `GEMMA_MODEL` | `gemma-4-26b-a4b-it` | Model id, without the `models/` prefix |
 | `GEMMA_THINKING` | `minimal` | Lowers Gemma's thinking time, which makes it about 4x faster on the 26B model. Leave it empty for models that reject it, such as `gemma-4-31b-it` |
 | `OLLAMA_URL` | `http://localhost:11434` | Ollama server (Ollama only) |
+| `RATE_LIMIT` | `5` | How many forms each visitor (by IP address) can analyze per 5 minutes. Extra requests get a friendly "try again in N min" message |
 | `CORS_ORIGINS` | `http://localhost:5173` | Allowed browser origins, comma separated. Only needed when frontend and backend are on different domains |
 
 To list the Gemma models your key can use:
@@ -138,8 +140,8 @@ All endpoints take `multipart/form-data`. Uploads may be PDF, PNG, JPEG or WebP,
 |---|---|---|
 | `GET /api/health` | | `{"ok": true}` |
 | `POST /api/analyze` | `file`, `language` (`English` or `Urdu`) | NDJSON stream of events: `pages` (page images as data URLs), `form` (title, purpose), one `field` per field (with an `id`), `summary` (checklist, warnings), or `error` |
-| `POST /api/locate` | `file`, `fields` (JSON list of `{id, label, evidence}`) | `{"locations": [{id, page, box, label_box}], "not_fields": [id]}`. Boxes are `[x0, y0, x1, y1]` as fractions of the page size |
-| `POST /api/fill` | `file`, `values` (JSON list of `{page, box, value}`) | The filled PDF as a download |
+| `POST /api/locate` | `file`, `fields` (JSON list of `{id, label, evidence, kind, options}`) | `{"locations": [{id, page, box, label_box, cells, choices}], "not_fields": [id]}`. Boxes are `[x0, y0, x1, y1]` as fractions of the page size. `cells` holds letter boxes; `choices` maps each option to its tick box |
+| `POST /api/fill` | `file`, `values` (JSON list of `{page, box, value, cells}`, or `{page, box, tick: true}` per picked option) | The filled PDF as a download |
 
 The server keeps no state between calls, so the browser sends the file again with each request.
 
