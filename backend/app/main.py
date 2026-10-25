@@ -24,7 +24,8 @@ FILL_VALUES = pydantic.TypeAdapter(Annotated[list[FillValue], pydantic.Field(max
 app = FastAPI(title="DocPal")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:5173").split(","),
+    # browsers send the origin without a trailing slash, so strip any that were pasted in
+    allow_origins=[o.strip().rstrip("/") for o in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")],
     allow_methods=["*"],
     allow_headers=["*"],
 )

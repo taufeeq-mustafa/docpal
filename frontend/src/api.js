@@ -1,4 +1,5 @@
-const BASE = import.meta.env.VITE_API_URL ?? ''
+// a trailing slash would make "//api/..." URLs, which Vercel redirects and browsers then block
+const BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '')
 
 async function post(path, fields) {
   const body = new FormData()
