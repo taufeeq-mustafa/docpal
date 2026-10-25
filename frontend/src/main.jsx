@@ -9,7 +9,9 @@ const dark = window.matchMedia('(prefers-color-scheme: dark)').matches
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <Theme accentColor="indigo" grayColor="slate" radius="medium" scaling="110%" appearance={dark ? 'dark' : 'light'}>
+    {/* no theme background, so the graph-paper body shows; solid panels keep cards readable on the grid */}
+    <Theme accentColor="indigo" grayColor="slate" radius="medium" scaling="110%" appearance={dark ? 'dark' : 'light'}
+      hasBackground={false} panelBackground="solid">
       <App />
     </Theme>
   </StrictMode>,

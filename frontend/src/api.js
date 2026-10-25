@@ -28,13 +28,13 @@ export async function analyzeForm(file, language, onEvent) {
   if (buf.trim()) onEvent(JSON.parse(buf))
 }
 
-// Agent 2: returns { locations: [{ id, page, box, label_box }], not_fields: [id] }
+// Agent 2: returns { locations: [{ id, page, box, label_box, cells, choices }], not_fields: [id] }
 export async function locateFields(file, fields) {
-  const refs = fields.map(({ id, label, evidence }) => ({ id, label, evidence }))
+  const refs = fields.map(({ id, label, evidence, kind, options }) => ({ id, label, evidence, kind, options }))
   return (await post('/api/locate', { file, fields: JSON.stringify(refs) })).json()
 }
 
-// values: [{ page, box, value }]; returns the filled PDF as a Blob
+// values: [{ page, box, value, cells }] for text, [{ page, box, tick: true }] per picked option; returns the filled PDF as a Blob
 export async function fillForm(file, values) {
   return (await post('/api/fill', { file, values: JSON.stringify(values) })).blob()
 }

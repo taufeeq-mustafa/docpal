@@ -69,7 +69,11 @@ export default function App() {
   async function download() {
     const payload = fields.flatMap((f) => {
       const loc = locations[f.id]
-      return loc && values[f.id]?.trim() ? [{ page: loc.page, box: loc.box, value: values[f.id] }] : []
+      const value = values[f.id]
+      if (!loc || !value?.length) return []
+      // choices: one tick per picked option; text: the answer, split into letter boxes when the form has them
+      if (f.kind === 'choice') return value.filter((o) => loc.choices[o]).map((o) => ({ page: loc.page, box: loc.choices[o], tick: true }))
+      return value.trim() ? [{ page: loc.page, box: loc.box, value, cells: loc.cells }] : []
     })
     try {
       const url = URL.createObjectURL(await fillForm(file, payload))
@@ -91,8 +95,8 @@ export default function App() {
   return (
     <Container size="4" px="4" py="5">
       <Flex direction="column" gap="2" mb="5">
-        <Heading size="8" weight="light">DocPal</Heading>
-        <Heading as="p" size="6" weight="regular">Any form. Plain words. Done right.</Heading>
+        <Heading size="9" weight="bold" className="brand">DocPal</Heading>
+        <Heading as="p" size="8" weight="medium" color="indigo" className="hand">Any form. Plain words. Done right.</Heading>
         <Text size="4" color="gray">Understand every field in seconds, fill it in on the spot, and download it ready to submit.</Text>
       </Flex>
       <div className="layout">

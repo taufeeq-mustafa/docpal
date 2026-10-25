@@ -1,9 +1,36 @@
 /* Colors, type and spacing come from Radix Themes tokens (indigo accent, slate gray) */
-body { margin: 0; }
 .radix-themes {
   --default-font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --heading-font-family: var(--default-font-family);
 }
+
+/* notebook graph paper: fine blue squares with a stronger line every 5 squares */
+:root { --paper: #fbfcff; --grid-minor: rgba(62, 99, 221, 0.12); --grid-major: rgba(62, 99, 221, 0.22); --marker: rgba(255, 214, 0, 0.55); }
+@media (prefers-color-scheme: dark) {
+  :root { --paper: #111318; --grid-minor: rgba(140, 165, 255, 0.07); --grid-major: rgba(140, 165, 255, 0.14); --marker: rgba(255, 214, 0, 0.3); }
+}
+body {
+  margin: 0;
+  min-height: 100vh;
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(var(--grid-major) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-major) 1px, transparent 1px),
+    linear-gradient(var(--grid-minor) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-minor) 1px, transparent 1px);
+  background-size: 120px 120px, 120px 120px, 24px 24px, 24px 24px;
+  background-attachment: fixed;
+}
+
+/* handwritten touches: marker title with a highlighter stroke, blue-pen punchline */
+.brand, .hand { font-family: 'Caveat', 'Segoe Print', cursive; letter-spacing: 0.01em; }
+.brand {
+  width: fit-content; padding: 0 0.15em;
+  background: linear-gradient(transparent 58%, var(--marker) 58%, var(--marker) 90%, transparent 90%);
+}
+.hand { transform: rotate(-1deg); transform-origin: left; }
+/* callout tints are see-through; put solid paper under them so grid lines don't cross the text */
+.rt-CalloutRoot { background: linear-gradient(var(--accent-a3), var(--accent-a3)), var(--color-panel-solid); }
 
 .layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: var(--space-5); align-items: start; }
 @media (max-width: 800px) { .layout { grid-template-columns: 1fr; } }
@@ -39,6 +66,10 @@ body { margin: 0; }
   position: absolute; pointer-events: none; display: flex; align-items: flex-end;
   padding-left: 2px; font-size: 1.6cqw; line-height: 1; color: #3a5bc7; white-space: nowrap; overflow: hidden;
 }
+
+.value.cell { justify-content: center; align-items: center; padding: 0; }
+.tick { position: absolute; pointer-events: none; display: flex; align-items: center; justify-content: center; color: #1c2024; }
+.tick svg { width: 100%; height: 100%; }
 
 .field { cursor: pointer; }
 .field.active { outline: 2px solid var(--accent-8); outline-offset: -1px; }

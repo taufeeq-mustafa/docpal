@@ -1,7 +1,39 @@
-import { Badge, Card, Flex, Heading, Text, TextField } from '@radix-ui/themes'
+import { Badge, Card, CheckboxGroup, Flex, Heading, RadioGroup, Text, TextField } from '@radix-ui/themes'
 
 const REQUIRED = { true: ['Required', 'indigo'], false: ['Optional', 'gray'], null: ['Not stated', 'gray'] }
 const STATUS_COLOR = { empty: 'gray', filled: 'green', unclear: 'amber' }
+
+// text fields take a string; choice fields take an array of the picked option texts
+function Answer({ field: f, cells, value, onPick, onChange }) {
+  if (f.kind === 'choice') {
+    const Group = f.multiple ? CheckboxGroup : RadioGroup
+    return (
+      <div onFocus={() => onPick(f.id)}>
+        <Text as="div" size="2" weight="medium" mb="2">{f.multiple ? 'Tick all that apply' : 'Choose one'}</Text>
+        <Group.Root
+          size="3"
+          value={f.multiple ? (value ?? []) : (value?.[0] ?? '')}
+          onValueChange={(v) => onChange(f.id, f.multiple ? v : [v])}
+        >
+          {f.options.map((o) => <Group.Item key={o} value={o}><span dir="auto">{o}</span></Group.Item>)}
+        </Group.Root>
+      </div>
+    )
+  }
+  return (
+    <label>
+      <Text as="div" size="2" weight="medium" mb="1">Your answer</Text>
+      <TextField.Root
+        size="3"
+        value={value ?? ''}
+        maxLength={cells || 500}
+        placeholder={cells ? `One letter per box, up to ${cells}` : 'Type your answer'}
+        onFocus={() => onPick(f.id)}
+        onChange={(e) => onChange(f.id, e.target.value)}
+      />
+    </label>
+  )
+}
 
 export default function FieldList({ fields, locations, locating, values, active, onPick, onChange }) {
   return (
@@ -23,17 +55,7 @@ export default function FieldList({ fields, locations, locating, values, active,
                   {f.you_need.map((n, j) => <Badge key={j} size="2" variant="surface" radius="full" className="chip" dir="auto">{n}</Badge>)}
                 </Flex>
               )}
-              <label>
-                <Text as="div" size="2" weight="medium" mb="1">Your answer</Text>
-                <TextField.Root
-                  size="3"
-                  value={values[f.id] ?? ''}
-                  maxLength={500}
-                  placeholder="Type your answer"
-                  onFocus={() => onPick(f.id)}
-                  onChange={(e) => onChange(f.id, e.target.value)}
-                />
-              </label>
+              <Answer field={f} cells={locations[f.id]?.cells?.length ?? 0} value={values[f.id]} onPick={onPick} onChange={onChange} />
               {!locations[f.id] && (
                 <Text size="2" color={locating ? 'gray' : 'amber'}>
                   {locating ? 'Finding this field on the form…' : "Couldn't place this on the form, so it won't be in the download."}
