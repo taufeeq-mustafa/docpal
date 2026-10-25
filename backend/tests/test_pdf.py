@@ -36,6 +36,30 @@ def fillable_form() -> bytes:
     return doc.tobytes()
 
 
+CELL = 14  # letter box size in the boxes form
+
+
+def boxes_form() -> bytes:
+    """Empty boxes, letter-by-letter boxes, checkboxes and bracket choices."""
+    doc = pymupdf.open()
+    page = doc.new_page()  # 595 x 842
+    page.insert_text((72, 100), "Full Name")
+    page.draw_rect(pymupdf.Rect(160, 88, 400, 106))  # box to the right
+    page.insert_text((72, 140), "Home Address")
+    page.draw_rect(pymupdf.Rect(72, 146, 400, 190))  # box underneath
+    page.insert_text((72, 220), "Passport No.")
+    for i in range(9):
+        page.draw_rect(pymupdf.Rect(160 + i * CELL, 208, 160 + (i + 1) * CELL, 208 + CELL))
+    page.insert_text((72, 260), "Gender")
+    page.draw_rect(pymupdf.Rect(160, 250, 170, 260))
+    page.insert_text((174, 259), "Male")
+    page.draw_rect(pymupdf.Rect(220, 250, 230, 260))
+    page.insert_text((234, 259), "Female")
+    page.insert_text((72, 300), "Do you hold a visa?")
+    page.insert_text((200, 300), "[ ] Yes   [ ] No")  # no drawn boxes at all
+    return doc.tobytes()
+
+
 def refs(*labels: str) -> list[FieldRef]:
     return [FieldRef(id=i, label=label) for i, label in enumerate(labels)]
 
@@ -78,24 +102,81 @@ def test_fields_sharing_a_blank_keep_the_first():
     assert overlapping([loc(0, same), Location(id=1, page=1, box=same)]) == set()  # other page
 
 
+def px(box: list[float]) -> list[float]:
+    """Page fractions back to points on the 595 x 842 test page."""
+    return [round(box[0] * 595), round(box[1] * 842), round(box[2] * 595), round(box[3] * 842)]
+
+
+def test_empty_boxes_right_and_below():
+    found, _ = text_locations(boxes_form(), refs("Full Name", "Home Address"))
+    assert px(found[0].box) == [160, 88, 400, 106] and found[0].cells == []
+    assert px(found[1].box) == [72, 146, 400, 190]
+
+
+def test_letter_boxes_become_cells():
+    found, _ = text_locations(boxes_form(), refs("Passport No."))
+    assert len(found[0].cells) == 9
+    assert px(found[0].cells[0]) == [160, 208, 160 + CELL, 208 + CELL]
+
+
+def test_choice_ticks_use_squares_and_skip_substring_matches():
+    found, _ = text_locations(boxes_form(), [FieldRef(id=0, label="Gender", kind="choice", options=["Male", "Female"])])
+    assert px(found[0].choices["Male"]) == [160, 250, 170, 260]  # not the "male" inside "Female"
+    assert px(found[0].choices["Female"]) == [220, 250, 230, 260]
+
+
+def test_choice_without_boxes_ticks_left_of_the_text():
+    found, _ = text_locations(boxes_form(), [FieldRef(id=0, label="Do you hold a visa?", kind="choice", options=["Yes", "No"])])
+    yes, no = (px(found[0].choices[o]) for o in ("Yes", "No"))
+    assert 200 <= yes[0] < yes[2] < no[0]  # each tick spot sits over its "[ ]", in order
+
+
+def test_fill_writes_one_letter_per_cell_and_ticks():
+    pdf = boxes_form()
+    passport = text_locations(pdf, refs("Passport No."))[0][0]
+    gender = text_locations(pdf, [FieldRef(id=0, label="Gender", kind="choice", options=["Male", "Female"])])[0][0]
+    out = fill_pdf(pdf, [FillValue(page=0, box=passport.box, value="AB1234567", cells=passport.cells),
+                         FillValue(page=0, box=gender.choices["Female"], tick=True)])
+    page = pymupdf.open(stream=out)[0]
+    letters = [page.get_text(clip=pymupdf.Rect(px(c))).strip() for c in passport.cells]
+    assert letters == list("AB1234567")
+    tick = pymupdf.Rect(px(gender.choices["Female"]))
+    assert any(d["rect"].intersects(tick) and len(d["items"]) == 2 for d in page.get_drawings())  # the two tick strokes
+
+
+def test_tall_box_gets_normal_size_wrapped_text():
+    box = text_locations(boxes_form(), refs("Home Address"))[0][0].box
+    address = "House 12, Street 4, Block B, Gulshan-e-Iqbal, Karachi 75300, Pakistan"
+    page = pymupdf.open(stream=fill_pdf(boxes_form(), [FillValue(page=0, box=box, value=address)]))[0]
+    sizes = {round(s["size"]) for b in page.get_text("dict", clip=pymupdf.Rect(px(box)))["blocks"] for line in b["lines"] for s in line["spans"]}
+    assert sizes == {11}
+    assert " ".join(page.get_text(clip=pymupdf.Rect(px(box))).split()) == address  # wrapped, nothing cut off
+
+
 def test_locate_fillable_uses_widget():
     found, _ = text_locations(fillable_form(), refs("Name of Student"))
     assert found[0].box == pytest.approx([180 / 595, 88 / 842, 400 / 595, 104 / 842], abs=0.002)
 
 
-def test_fill_flat_adds_editable_field():
+def text_in_box(pdf: bytes, box: list[float]) -> str:
+    """Filled output must be flat page text (no live form fields) inside the answer box."""
+    page = pymupdf.open(stream=pdf)[0]
+    assert list(page.widgets()) == []
+    w, h = page.rect.width, page.rect.height
+    return page.get_text(clip=pymupdf.Rect(box[0] * w, box[1] * h, box[2] * w, box[3] * h) + (-2, -2, 2, 2)).strip()
+
+
+def test_fill_flat_writes_text_on_the_line():
     box = text_locations(flat_form(), refs("Name of Student"))[0][0].box
-    out = pymupdf.open(stream=fill_pdf(flat_form(), [FillValue(page=0, box=box, value="Ayesha Khan")]))
-    assert [w.field_value for w in out[0].widgets()] == ["Ayesha Khan"]
+    assert text_in_box(fill_pdf(flat_form(), [FillValue(page=0, box=box, value="Ayesha Khan")]), box) == "Ayesha Khan"
 
 
-def test_fill_fillable_sets_existing_widget():
+def test_fill_fillable_uses_existing_field():
     box = text_locations(fillable_form(), refs("Name of Student"))[0][0].box
-    out = pymupdf.open(stream=fill_pdf(fillable_form(), [FillValue(page=0, box=box, value="Ayesha Khan")]))
-    assert [(w.field_name, w.field_value) for w in out[0].widgets()] == [("student_name", "Ayesha Khan")]
+    assert text_in_box(fill_pdf(fillable_form(), [FillValue(page=0, box=box, value="Ayesha Khan")]), box) == "Ayesha Khan"
 
 
-def test_photo_becomes_fillable_pdf():
+def test_photo_becomes_filled_pdf():
     png = pymupdf.open(stream=make_pdf(1))[0].get_pixmap().tobytes("png")
-    out = pymupdf.open(stream=fill_pdf(as_pdf(png, "image/png"), [FillValue(page=0, box=[0.3, 0.1, 0.6, 0.12], value="Ayesha")]))
-    assert out.page_count == 1 and [w.field_value for w in out[0].widgets()] == ["Ayesha"]
+    box = [0.3, 0.1, 0.6, 0.12]
+    assert text_in_box(fill_pdf(as_pdf(png, "image/png"), [FillValue(page=0, box=box, value="Ayesha")]), box) == "Ayesha"

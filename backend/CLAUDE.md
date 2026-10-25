@@ -25,10 +25,11 @@ Config is read from `.env` by `load_dotenv()` at the top of `main.py`. Never com
   - `parse_boxes` reads Gemma boxes.
 - `app/pdf.py`: everything PyMuPDF.
   - `open_pdf` (checks), `to_images` (2x render), `as_pdf` (image to PDF).
-  - `text_locations`: exact positions from the text layer, plus ids that are unit suffixes.
+  - `_shapes`: finds blanks (text widgets, lines, underscores, empty boxes, letter-box rows with their cells) and tick boxes (checkbox widgets, lone small squares).
+  - `text_locations`: exact positions from the text layer, plus ids that are unit suffixes. Text fields use `_answer_area` (right of the label, then a box or letter row just below); choice fields use `_choice_area` (each option near the label and the square beside it).
   - `overlapping`: duplicate guardrail.
-  - `fill_pdf`: sets existing text widgets, or adds new `docpal_*` widgets.
-- `app/schemas.py`: Pydantic models. `Field`, `FormHeader` and `Summary` are Agent 1's output; `FieldRef` and `Location` are Agent 2's input and output; `FillValue` is the fill input.
+  - `fill_pdf`: `tick` values get a drawn tick mark, values with `cells` get one character per letter box, other text sets existing text widgets or adds new `docpal_*` widgets (11 pt wrapped in tall boxes, auto-fit on lines). Then `doc.bake()` flattens everything into plain page text (viewers shade live fields blue).
+- `app/schemas.py`: Pydantic models. `Field` (with `kind` text or choice, `options`, `multiple`), `FormHeader` and `Summary` are Agent 1's output; `FieldRef` and `Location` (with letter `cells` and option `choices`) are Agent 2's input and output; `FillValue` is the fill input.
 
 ## Request flow
 
@@ -44,7 +45,8 @@ Config is read from `.env` by `load_dotenv()` at the top of `main.py`. Never com
 - **The AI never fills in answers.** Prompts must keep forbidding invented values; `you_need` describes what's needed, never the answer itself.
 - **Plain language.** Explanations stay short and jargon-free (see the rules in `EXPLAIN_PROMPT`). No emojis or em dashes anywhere: `_plain()` strips them from model output before parsing, and new UI text or prompts must not add them.
 - **Nothing form-specific.** Prompts and heuristics must work for any form. Don't hard-code labels from the sample forms.
-- **Add a test** in `tests/` for any change to parsing, location or guardrails.
+- **Rate limit:** `rate_limit(request, bucket)` allows `RATE_LIMIT` Gemma calls per visitor IP per 5 minutes. Call it before any new code path that calls Gemma. It trusts `X-Real-IP`, which nginx and Vercel set, so never expose the backend directly to the internet without one of them in front. Counts are per process (see its `shortcut:` comment).
+- **Add a test** in `tests/` for any change to parsing, location, guardrails or the rate limit.
 
 ## Known quirks
 

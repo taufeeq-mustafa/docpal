@@ -20,6 +20,7 @@ Rules:
 - NEVER suggest, guess or invent a value for any field. In "you_need", describe what information or document the user must provide, not the answer itself.
 - "status": "filled" if something is already written in the field, "empty" if blank, "unclear" if unreadable. Never guess unreadable text. If "filled", "you_need" is an empty list and "explanation" says what to double-check.
 - "required": true or false only if the form marks it (e.g. *, "required", "optional"); otherwise null.
+- "kind": "choice" when the applicant ticks, circles or picks from options printed on the form (checkboxes, Yes / No, a list to tick). Then "options" lists every option's printed text exactly, and "multiple" is true only if more than one may be picked (e.g. "tick all that apply"). For everything else "kind" is "text", "options" is [] and "multiple" is false. Letter-by-letter boxes are "text".
 - "warnings": short plain-language alerts about deadlines, penalties, fees, signatures or attachments printed on the form, e.g. "Deadline: 15 Dec, 5 PM. Late forms are rejected." Do not just repeat field labels. Empty list if none.
 - "checklist": ordered steps to complete and submit the form.
 - Write "purpose", "explanation", "you_need", "checklist" and "warnings" in LANGUAGE. Keep "form_title", "label" and "evidence" exactly as printed.
@@ -32,14 +33,15 @@ Rules:
 
 Output JSON Lines: one JSON object per line, no markdown, no blank lines, in this order:
 {"type": "form", "form_title": "...", "purpose": "..."}
-{"type": "field", "label": "...", "evidence": "...", "explanation": "...", "required": true, "status": "empty", "you_need": ["..."]}
+{"type": "field", "label": "...", "evidence": "...", "explanation": "...", "required": true, "status": "empty", "you_need": ["..."], "kind": "text", "options": [], "multiple": false}
 (one "field" line per field)
 {"type": "summary", "checklist": ["..."], "warnings": ["..."]}
 """
 
 LOCATE_PROMPT = """You are given the page image(s) of a form (the first image is page 0) and a list of its fields.
 For each field, find the blank space where the applicant writes the answer: the empty line, box or area next to or below its label. Do not include the label text itself.
-Reply with ONLY one JSON object: {"boxes": [{"id": <field id>, "page": <page index>, "box_2d": [ymin, xmin, ymax, xmax]}]} with coordinates normalized to 0-1000. Leave out fields you cannot find.
+For fields with "options", also give each option's tick box: the small square or circle next to that option's printed text.
+Reply with ONLY one JSON object: {"boxes": [{"id": <field id>, "page": <page index>, "box_2d": [ymin, xmin, ymax, xmax], "options": {"<option text>": [ymin, xmin, ymax, xmax]}}]} with coordinates normalized to 0-1000. Include "options" only for fields that have them. Leave out fields you cannot find.
 Fields:
 """
 
@@ -122,18 +124,41 @@ def parse_lines(chunks: Iterable[str]) -> Iterator[dict]:
             yield event
 
 
-def parse_boxes(text: str, n_pages: int, ids: set[int]) -> dict[int, Location]:
+def _box(box_2d) -> list[float]:
+    """Gemma's [ymin, xmin, ymax, xmax] on 0-1000 -> page fractions [x0, y0, x1, y1]; raises if unusable."""
+    y0, x0, y1, x1 = (min(max(float(v) / 1000, 0.0), 1.0) for v in box_2d)
+    box = [min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)]
+    if box[2] <= box[0] or box[3] <= box[1]:
+        raise ValueError("empty box")
+    return box
+
+
+def parse_boxes(text: str, n_pages: int, options: dict[int, list[str]]) -> dict[int, Location]:
+    """options maps each requested field id to its printed options ([] for text fields)."""
     m = re.search(r"\{.*\}", text, re.S)
     if not m:
         raise ValueError("no JSON object in model reply")
     out = {}
     for b in json.loads(m.group(0)).get("boxes", []):
         try:
-            y0, x0, y1, x1 = (min(max(float(v) / 1000, 0.0), 1.0) for v in b["box_2d"])
-            loc = Location(id=b["id"], page=b.get("page", 0), box=[min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)])
-        except (ValueError, KeyError, TypeError):
+            if b["id"] not in options:
+                continue
+            choices = {}
+            for opt, box_2d in (b.get("options") or {}).items():
+                if opt in options[b["id"]]:
+                    try:
+                        choices[opt] = _box(box_2d)
+                    except (ValueError, TypeError):
+                        pass
+            if "box_2d" in b:
+                box = _box(b["box_2d"])
+            else:  # a choice field may come with only its option boxes
+                xs = list(choices.values())
+                box = [min(c[0] for c in xs), min(c[1] for c in xs), max(c[2] for c in xs), max(c[3] for c in xs)]
+            loc = Location(id=b["id"], page=b.get("page", 0), box=box, choices=choices)
+        except (ValueError, KeyError, TypeError, AttributeError):
             continue
-        if loc.id in ids and loc.page < n_pages and loc.box[2] > loc.box[0] and loc.box[3] > loc.box[1]:
+        if loc.page < n_pages:
             out[loc.id] = loc
     return out
 
@@ -145,5 +170,6 @@ def explain(images: list[tuple[bytes, str]], language: str) -> Iterator[dict]:
 
 def locate(images: list[tuple[bytes, str]], fields: list[FieldRef]) -> dict[int, Location]:
     """Agent 2: Gemma vision coordinates for each field's answer area."""
-    refs = json.dumps([{"id": f.id, "label": f.label} for f in fields], ensure_ascii=False)
-    return parse_boxes(_call(LOCATE_PROMPT + refs, images), len(images), {f.id for f in fields})
+    refs = json.dumps([{"id": f.id, "label": f.label, **({"options": f.options} if f.options else {})} for f in fields],
+                      ensure_ascii=False)
+    return parse_boxes(_call(LOCATE_PROMPT + refs, images), len(images), {f.id: f.options for f in fields})

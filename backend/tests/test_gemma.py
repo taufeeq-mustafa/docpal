@@ -32,7 +32,25 @@ def test_boxes_converted_clamped_and_filtered():
         {"id": 9, "page": 0, "box_2d": [1, 1, 2, 2]},
         {"id": 3, "box_2d": [1, 2]}
     ]}"""
-    out = parse_boxes(reply, n_pages=1, ids={0, 1, 2, 3})
+    out = parse_boxes(reply, n_pages=1, options={0: [], 1: [], 2: [], 3: []})
     assert out[0].box == [0.2, 0.1, 0.6, 0.12]  # [ymin,xmin,ymax,xmax] -> [x0,y0,x1,y1]
     assert out[1].box[2] == 1.0  # clamped to the page
     assert set(out) == {0, 1}  # bad page, unknown id and malformed box dropped
+
+
+def test_choice_boxes_keep_only_known_options():
+    reply = """{"boxes": [
+        {"id": 0, "page": 0, "options": {"Yes": [100, 100, 110, 110], "No": [100, 200, 110, 210], "Maybe": [1, 1, 2, 2]}},
+        {"id": 1, "page": 0, "box_2d": [300, 100, 320, 500], "options": {"A": "bad"}}
+    ]}"""
+    out = parse_boxes(reply, n_pages=1, options={0: ["Yes", "No"], 1: ["A"]})
+    assert set(out[0].choices) == {"Yes", "No"}  # invented option dropped
+    assert out[0].box == [0.1, 0.1, 0.21, 0.11]  # no box_2d: the group spans its options
+    assert out[1].choices == {}  # malformed option box dropped, field kept
+
+
+def test_choice_field_streams_with_options():
+    line = FIELD.replace('"you_need": ["ID card"]', '"you_need": [], "kind": "choice", "options": ["Male", "Female"], "multiple": false')
+    field = next(parse_lines([line]))
+    assert field["kind"] == "choice" and field["options"] == ["Male", "Female"] and field["multiple"] is False
+    assert next(parse_lines([FIELD]))["kind"] == "text"  # older lines without kind still work
